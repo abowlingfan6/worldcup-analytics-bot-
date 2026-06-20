@@ -7,89 +7,64 @@ BASE = f"https://api.sofascore.com/api/v1/event/{MATCH_ID}"
 
 
 # -----------------------
-# FETCH DATA
+# FETCH DATA SAFELY
 # -----------------------
 def fetch(endpoint):
     url = f"{BASE}/{endpoint}"
-    r = requests.get(url)
-    return r.json()
+
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        return r.json()
+    except:
+        return {}
 
 
-def get_lineups():
-    return fetch("lineups")
-
-
+# -----------------------
+# GET INCIDENTS (SAFE DATA SOURCE)
+# -----------------------
 def get_incidents():
-    return fetch("incidents")
+    data = fetch("incidents")
+    return data if data else {}
 
 
 # -----------------------
-# BUILD PLAYERS
+# BUILD PLAYERS FROM INCIDENTS
+# (MOST RELIABLE METHOD)
 # -----------------------
-def build_players(lineups):
-    players = []
+def build_players(incidents):
+    players = {}
 
-    if not lineups:
-        print("No lineups returned")
-        return pd.DataFrame(columns=["player", "team", "goals", "assists", "shots", "tackles"])
+    if not incidents:
+        return pd.DataFrame(columns=["player", "goals"])
 
-    for side_key in lineups.keys():
-        side_data = lineups.get(side_key, {})
-
-        team_players = side_data.get("players", [])
-
-        for p in team_players:
-            player_obj = p.get("player", {})
-
-            name = player_obj.get("name")
-
-            if not name:
-                continue
-
-            players.append({
-                "player": name,
-                "team": side_key,
-                "goals": 0,
-                "assists": 0,
-                "shots": 0,
-                "tackles": 0
-            })
-
-    if not players:
-        return pd.DataFrame(columns=["player", "team", "goals", "assists", "shots", "tackles"])
-
-    return pd.DataFrame(players)
-
-
-# -----------------------
-# ADD INCIDENTS
-# -----------------------
-def add_incidents(df, incidents):
     for inc in incidents.get("incidents", []):
         name = inc.get("playerName")
 
-        if name in df["player"].values:
-            if inc["incidentType"] == "goal":
-                df.loc[df["player"] == name, "goals"] += 1
+        if not name:
+            continue
 
-    return df
+        if name not in players:
+            players[name] = {
+                "player": name,
+                "goals": 0
+            }
+
+        if inc.get("incidentType") == "goal":
+            players[name]["goals"] += 1
+
+    return pd.DataFrame(players.values())
 
 
 # -----------------------
 # RATING MODEL
 # -----------------------
 def calculate_rating(row):
-    return (
-        6.0
-        + 1.0 * row["goals"]
-        + 0.5 * row["assists"]
-        + 0.1 * row["shots"]
-        + 0.075 * row["tackles"]
-    )
+    return 6.0 + (1.0 * row["goals"])
 
 
 # -----------------------
-# SAVE TO GITHUB CSV
+# SAVE CSV
 # -----------------------
 def save_csv(df):
     os.makedirs("data", exist_ok=True)
@@ -100,17 +75,24 @@ def save_csv(df):
 # MAIN
 # -----------------------
 def main():
-    lineups = get_lineups()
+    print("Starting bot...")
+
     incidents = get_incidents()
 
-    players = build_players(lineups)
-    players = add_incidents(players, incidents)
+    players = build_players(incidents)
+
+    print("Players extracted:")
+    print(players)
+
+    if players.empty:
+        print("No data found. Exiting safely.")
+        return
 
     players["rating"] = players.apply(calculate_rating, axis=1)
 
     save_csv(players)
 
-    print("Updated worldcup_ratings.csv")
+    print("SUCCESS - CSV updated")
 
 
 if __name__ == "__main__":
