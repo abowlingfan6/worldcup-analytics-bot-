@@ -29,18 +29,34 @@ def get_incidents():
 def build_players(lineups):
     players = []
 
-    for side in ["home", "away"]:
-        team = lineups.get(side, {}).get("players", [])
+    if not lineups:
+        print("No lineups returned")
+        return pd.DataFrame(columns=["player", "team", "goals", "assists", "shots", "tackles"])
 
-        for p in team:
+    for side_key in lineups.keys():
+        side_data = lineups.get(side_key, {})
+
+        team_players = side_data.get("players", [])
+
+        for p in team_players:
+            player_obj = p.get("player", {})
+
+            name = player_obj.get("name")
+
+            if not name:
+                continue
+
             players.append({
-                "player": p["player"]["name"],
-                "team": side,
+                "player": name,
+                "team": side_key,
                 "goals": 0,
                 "assists": 0,
                 "shots": 0,
                 "tackles": 0
             })
+
+    if not players:
+        return pd.DataFrame(columns=["player", "team", "goals", "assists", "shots", "tackles"])
 
     return pd.DataFrame(players)
 
